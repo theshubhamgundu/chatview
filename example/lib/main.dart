@@ -7,40 +7,49 @@ import 'firebase_options.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  ChatViewConnect.initialize(
-    ChatViewCloudService.firebase,
-    // Configuration for mapping user data fields from your backend
-    // to the expected fields used by ChatViewConnect.
-    // chatUserConfig: const ChatUserConfig(
-    //   idKey: 'user_id',
-    //   nameKey: 'first_name',
-    //   profilePhotoKey: 'avatar',
-    // ),
-    // Configuration for customizing Firebase Firestore paths and
-    // collection names used by ChatViewConnect.
-    //
-    // Example:
-    //   databasePathConfig: FirestoreChatDatabasePathConfig(
-    //     userCollectionPath: 'organizations/app',
-    //   ),
-    //   collectionNameConfig: FirestoreChatCollectionNameConfig(
-    //     users: 'app_users',
-    //   ),
-    // ),
-  );
-
-  // Sets the current user ID for the ChatViewConnect instance
-  // based on the authenticated user.
-  //
-  // This ensures that all future chat-related operations are scoped
-  // to the currently logged-in user (e.g., fetching user-specific
-  // chat rooms or messages).
-  //
-  // It should be called after confirming a valid user is logged in
-  // For example, on Firebase through `FirebaseAuth.instance.authStateChanges()`
-  ChatViewConnect.instance.setCurrentUserId(
-    'EWEsGWI7LXXBWHkCZVMh11XMOKz2',
-  );
-  runApp(const ChatViewConnectExampleApp());
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    ChatViewConnect.initialize(
+      ChatViewCloudService.firebase,
+    );
+    ChatViewConnect.instance.setCurrentUserId(
+      'EWEsGWI7LXXBWHkCZVMh11XMOKz2',
+    );
+    runApp(const ChatViewConnectExampleApp());
+  } catch (e) {
+    runApp(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 64),
+                const SizedBox(height: 16),
+                const Text(
+                  'Firebase Configuration Missing',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Please configure Firebase for the Web platform in example/lib/firebase_options.dart',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Error Details:',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                Text(e.toString(), textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
 }
