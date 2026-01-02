@@ -1,4 +1,4 @@
-package com.simform.chatview_connect
+package com.theshubhamgundu.chatview
 
 import io.flutter.embedding.android.FlutterActivity
 

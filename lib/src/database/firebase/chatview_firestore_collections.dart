@@ -100,7 +100,7 @@ abstract final class ChatViewFireStoreCollections {
   /// If a path is specified, the chat collection will be created at '[documentPath]/chats' and
   /// the same path will be used to retrieve chat rooms.
   ///
-  /// Example: 'organizations/simform/chats'
+  /// Example: 'organizations/app/chats'
   static CollectionReference<ChatRoom?> chatCollection([
     String? documentPath,
   ]) {
