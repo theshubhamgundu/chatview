@@ -1,11 +1,10 @@
 name: chatview_connect
-description: "Specialized wrapper for chatview package providing seamless integration with Database & Storage for your flutter chat app."
+description: "Specialized wrapper for chatview package providing seamless integration with local or custom cloud services for your flutter chat app."
 version: 3.0.0
 issue_tracker: https://github.com/theshubhamgundu/chatview/issues
 homepage: https://github.com/theshubhamgundu/chatview
 topics:
   - chatview
-  - firebase
   - chat-backend
   - plug-and-play
   - backend-integration
@@ -22,9 +21,6 @@ environment:
 
 dependencies:
   chatview_utils: 3.0.0
-
-  cloud_firestore: ^6.1.1
-  firebase_storage: ^13.0.5
 
   flutter:
     sdk: flutter
