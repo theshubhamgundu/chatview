@@ -4,8 +4,7 @@ Developed by **shubham gundu**
 
 [![Build](https://github.com/theshubhamgundu/chatview/actions/workflows/flutter.yaml/badge.svg?branch=master)](https://github.com/theshubhamgundu/chatview/actions) [![chatview_connect](https://img.shields.io/pub/v/chatview_connect?label=chatview_connect)](https://pub.dev/packages/chatview_connect)
 
-`chatview_connect` is a specialized wrapper for the [`chatview`][chatViewPackage]
-package, providing seamless integration with Database & Storage for your Flutter chat app.
+`chatview_connect` is a specialized wrapper for the [`chatview`][chatViewPackage] package, providing seamless integration with Database & Storage for your Flutter chat app.
 
 _Check out other amazing projects by [shubham gundu](https://github.com/theshubhamgundu)!_
 
@@ -18,15 +17,15 @@ _Check out other amazing projects by [shubham gundu](https://github.com/theshubh
 ## Features
 
 - **Easy Setup:** Integrate with the [`chatview`][chatViewPackage] package in 3 steps:
-    1. Initialize the package by specifying the **Cloud Service** (e.g., Firebase).
+    1. Initialize the package by specifying the **Cloud Service** (e.g., Local/Mock).
     2. Set the current **User ID**.
     3. Widget-wise controllers to use it with the [`chatview`][chatViewPackage] package:
        1. For `ChatList` obtain the **`ChatListManager`**
        2. For `ChatView` obtain the **`ChatManager`**
 - Supports **one-on-one** and **group chats** with **media uploads** *(audio not supported).*
+- **Local Service Support:** Perfect for offline apps or rapid prototyping without a backend setup.
 
-***Note:*** *Currently, it supports only Firebase Cloud Services. Support for additional cloud
-services will be included in future releases.*
+***Note:*** *Previously supported Firebase. Currently optimized for Local/Mock service and preparing for more providers.*
 
 ## Documentation
 
@@ -48,13 +47,7 @@ dependencies:
 
 ## Support
 
-For questions, issues, or feature
-requests, [create an issue](https://github.com/theshubhamgundu/chatview/issues)
-on GitHub. We're happy to help and encourage community
-contributions.
-
-To contribute documentation updates specifically, please make changes to the `doc/documentation.md`
-file and submit a pull request.
+For questions, issues, or feature requests, [create an issue](https://github.com/theshubhamgundu/chatview/issues) on GitHub. We're happy to help and encourage community contributions.
 
 ## License
 
