@@ -1,0 +1,859 @@
+import 'dart:async';
+import 'dart:collection';
+
+import 'package:chatview_utils/chatview_utils.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/widgets.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../chatview_connect.dart';
+import '../../chatview_connect_constants.dart';
+import '../../database/database_service.dart';
+import '../../enum.dart';
+import '../../extensions.dart';
+import '../../models/chat_room_display_metadata.dart';
+import '../../models/chat_room_metadata.dart';
+import '../../models/chat_room_participant.dart';
+import '../../models/config/chat_controller_config.dart';
+import '../../models/config/firebase/firebase_storage_config.dart';
+import '../../models/config/message_ops_config.dart';
+import '../../storage/storage_service.dart';
+
+/// A class responsible for managing the connection to
+/// the database and storage services in a chat view context.
+final class ChatManager extends ChatController {
+  // Created this factory constructor to provide chat list related methods
+  // along with chat room methods.
+  /// Creates an instance of [ChatManager] from a given [CloudServices] service.
+  ///
+  /// This factory method initializes a new chat manager with
+  /// default values and connects it to the provided database service.
+  ///
+  /// **Parameters:**
+  /// - (required): [service] The database service that provides storage and
+  /// database access for managing chat rooms.
+  ///
+  /// **Returns:**
+  /// A new instance of [ChatManager] with the specified database service.
+  ///
+  /// **Note:**
+  /// Default values are provided because `updateUserActiveStatus`, `createChat`
+  /// , `createGroupChat`, `getUsers`, and  `deleteChat` do not depend on
+  /// the chat room itself.
+  ///
+  /// For chat room-related operations, use
+  /// `ChatViewConnect.instance.getChatRoomManager(...)`.
+  factory ChatManager.fromService(CloudServices service) {
+    return ChatManager._(
+      otherUsers: [],
+      initialMessageList: [],
+      storage: service.storage,
+      database: service.database,
+      scrollController: ScrollController(),
+      currentUser: const ChatUser(id: '', name: ''),
+    );
+  }
+
+  /// Creates and initializes a [ChatManager] instance using an existing
+  /// chat room ID.
+  ///
+  /// This constructor is used when a chat room already exists, and
+  /// its participants and messages need to be loaded.
+  ///
+  /// **Parameters:**
+  /// - (required): [id] The unique identifier of the chat room.
+  /// - (required): [scrollController] A [ScrollController] to manage scrolling
+  /// behavior.
+  /// - (required): [service] An instance of [CloudServices] that provides
+  /// database and storage services.
+  /// - (required): [participants] Contains details about the current
+  /// user and other participants in the chat.
+  /// - (optional): [config] A [ChatControllerConfig] instance that defines
+  ///   chat settings such as message listening, user activity tracking, and
+  ///   metadata updates.
+  ///
+  /// **Returns:**
+  /// A fully initialized [ChatManager] instance with the provided
+  /// chat room details.
+  factory ChatManager.fromChatRoomId({
+    required String id,
+    required CloudServices service,
+    required ScrollController scrollController,
+    required ChatRoomMetadata participants,
+    ChatControllerConfig? config,
+  }) {
+    return ChatManager._(
+      storage: service.storage,
+      database: service.database,
+      scrollController: scrollController,
+      currentUser: participants.currentUser,
+      otherUsers: participants.otherUsers,
+    )
+      .._config = config
+      .._chatRoomId = id
+      .._currentChatRoomMetadata = participants
+      .._isChatRoomCreated = true
+      .._init();
+  }
+
+  /// Creates and initializes a [ChatManager] for a new one-to-one or
+  /// group chat.
+  ///
+  /// This constructor is used when a chat room does not yet exist and needs
+  /// to be created with the specified users.
+  ///
+  /// **Parameters:**
+  /// - (required): [chatRoomType] Defines whether the chat is one-to-one or
+  /// group.
+  /// - (required): [currentUser] The user who is initiating or joining the
+  /// chat.
+  /// - (required): [otherUsers] A list of users who will participate in
+  /// the chat.
+  /// - (required): [scrollController] A [ScrollController] to manage scrolling
+  /// behavior.
+  /// - (required): [service] An instance of [CloudServices] that provides
+  /// database and storage services.
+  /// - (optional): [config] A [ChatControllerConfig] instance that defines
+  ///   chat settings such as message listening, user activity tracking, and
+  ///   metadata updates.
+  /// - (optional): [chatRoomId] A unique identifier for the chat room.
+  /// If `null`, a new chat room ID is generated.
+  /// - (optional): [groupName] The name of the group chat
+  /// (only applicable for group chats).
+  ///   If `null`, a default name is generated by joining participant names.
+  /// - (optional): [groupProfile] The profile picture URL for the group chat.
+  /// (only applicable for group chats).
+  ///
+  /// **Behavior:**
+  /// - If a `chatRoomId` is provided, it means the chat room already exists.
+  /// - If `chatRoomId` is `null`, a new unique ID is generated for the chat.
+  /// - If the chat type is **group**, it sets up the group name and profile
+  /// picture.
+  ///
+  /// **Returns:**
+  /// A fully initialized [ChatManager] instance.
+  factory ChatManager.fromParticipants({
+    required ChatUser currentUser,
+    required CloudServices service,
+    required ChatRoomType chatRoomType,
+    required List<ChatUser> otherUsers,
+    required ScrollController scrollController,
+    ChatControllerConfig? config,
+    String? chatRoomId,
+    String? groupName,
+    String? groupProfile,
+  }) {
+    final chatRoomParticipants = ChatRoomMetadata(
+      chatRoomType: chatRoomType,
+      currentUser: currentUser,
+      otherUsers: otherUsers,
+      groupPhotoUrl: chatRoomType.isGroup ? groupProfile : null,
+      groupName: groupName ??
+          (chatRoomType.isGroup ? otherUsers.toJoinString(', ') : null),
+    );
+    return ChatManager._(
+      storage: service.storage,
+      database: service.database,
+      scrollController: scrollController,
+      currentUser: currentUser,
+      otherUsers: otherUsers,
+    )
+      .._config = config
+      .._config?.chatRoomMetadata?.call(chatRoomParticipants)
+      .._chatRoomId = chatRoomId ?? const Uuid().v8()
+      .._currentChatRoomMetadata = chatRoomParticipants
+      .._isChatRoomCreated = chatRoomId != null
+      .._init();
+  }
+
+  ChatManager._({
+    required DatabaseService database,
+    required StorageService storage,
+    required super.scrollController,
+    required super.otherUsers,
+    required super.currentUser,
+    super.initialMessageList = const [],
+  })  : _storage = storage,
+        _database = database;
+
+  final StorageService _storage;
+  final DatabaseService _database;
+
+  static const FirebaseStorageConfig _storageConfig = FirebaseStorageConfig(
+    syncImage: true,
+    // TODO(Yash): Update this once the chatview supports
+    //  the network voice message URL on UI.
+    syncVoice: false,
+  );
+
+  StreamSubscription<List<Message>>? _messagesStream;
+  StreamSubscription<Map<String, ChatRoomParticipant>>?
+      _chatRoomParticipantsStream;
+  StreamSubscription<ChatRoomDisplayMetadata>? _chatRoomDisplayMetadataStream;
+  ChatControllerConfig? _config;
+  ChatRoomMetadata? _currentChatRoomMetadata;
+
+  String? _chatRoomId;
+
+  late final Map<String, ChatUser> _otherActiveUsers = otherUsersMap;
+
+  /// Returns a list of other active users.
+  List<ChatUser> get otherActiveUsers {
+    try {
+      return _otherActiveUsers.values.toList();
+    } catch (_) {
+      return otherUsers;
+    }
+  }
+
+  // This is for identifying that is chat room is created
+  bool _isChatRoomCreated = false;
+
+  bool get _isInitialized =>
+      _chatRoomParticipantsStream != null || _messagesStream != null;
+
+  ChatRoomType? get _chatRoomType => _currentChatRoomMetadata?.chatRoomType;
+
+  String get _currentUserId {
+    final userId = ChatViewConnect.instance.currentUserId ?? '';
+    assert(userId.isNotEmpty, "Current User ID can't be empty!");
+    return userId;
+  }
+
+  /// The unique identifier for the chat room.
+  ///
+  /// This ID is used to distinguish between different chat rooms.
+  /// It can be `null` if the chat room has not been initialized
+  /// or assigned yet.
+  String get chatRoomId {
+    assert(_chatRoomId?.isNotEmpty ?? false, "Chat Room ID can't be empty!");
+    return _chatRoomId!;
+  }
+
+  /// Initializes streams to monitor chat room activities, including:
+  /// - **Metadata updates**: Listens for chat room metadata changes and
+  /// invokes the configured callback.
+  /// - **User activity tracking**: Monitors typing status and presence updates.
+  /// - **Message retrieval**: Fetches messages for the chat room.
+  ///
+  /// **Behavior:**
+  /// - Returns early if the chat room is already created and initialized.
+  /// - Tracks user metadata updates if `syncOtherUsersInfo` is enabled.
+  /// - If `syncOtherUsersInfo` is not specified, it defaults to `true`.
+  void _init() {
+    if (!_isChatRoomCreated || _isInitialized) return;
+
+    final syncOtherUsersInfo = _config?.syncOtherUsersInfo ?? true;
+
+    final chatViewParticipants = _currentChatRoomMetadata;
+    if (chatViewParticipants == null) return;
+    final chatRoomType = chatViewParticipants.chatRoomType;
+    if (_config?.onChatRoomDisplayMetadataChange
+        case final metadataChangesCallback?) {
+      _chatRoomDisplayMetadataStream = _database
+          .getChatRoomDisplayMetadataStream(
+            chatId: chatRoomId,
+            chatRoomType: chatRoomType,
+            userId: chatRoomType.isOneToOne
+                ? chatViewParticipants.otherUsers.firstOrNull?.id
+                : null,
+          )
+          .listen(metadataChangesCallback);
+    }
+
+    _chatRoomParticipantsStream = _database
+        .getChatRoomUsersMetadataStream(
+          userId: _currentUserId,
+          chatId: chatRoomId,
+          observeUserInfoChanges: syncOtherUsersInfo,
+        )
+        .listen(
+          (users) => _listenChatRoomUsersActivity(
+            users: users,
+            syncOtherUsersInfo: syncOtherUsersInfo,
+            onUserActivityChanges: _config?.onUsersActivityChange,
+          ),
+        );
+
+    (chatRoomType.isGroup
+            ? _database.getUserMembershipTimestamp(
+                chatId: chatRoomId,
+                userId: _currentUserId,
+                retry: ChatViewConnectConstants.defaultRetry,
+              )
+            : Future<DateTime?>.value())
+        .then(
+      (startMessageTimestamp) {
+        _messagesStream = _database
+            .getMessagesStream(
+              chatId: chatRoomId,
+              sortBy: MessageSortBy.createAt,
+              sortOrder: MessageSortOrder.asc,
+              from: startMessageTimestamp,
+            )
+            .listen(_listenMessages);
+      },
+    );
+  }
+
+  /// Sends a message and optionally attaches a reply message and message type.
+  /// This method is triggered when a user sends a new message in the chat.
+  /// It also handles uploading media and stores the message in the database.
+  ///
+  /// **Parameters:**
+  /// - (required): [message] The content of the message being sent.
+  /// - (required): [replyMessage] An optional reply to another message, if any.
+  /// - (required): [messageType] The type of the message
+  /// (e.g., text, image, video).
+  ///
+  /// Returns a [Future] that completes with the newly sent [Message] object,
+  /// or null if the message could not be sent.
+  Future<Message?> onSendTap(
+    String message,
+    ReplyMessage replyMessage,
+    MessageType messageType, {
+    bool useAutoGeneratedId = false,
+  }) {
+    if (_isChatRoomCreated && !_isInitialized) return Future.value();
+    return onSendTapFromMessage(
+      useAutoGeneratedId: useAutoGeneratedId,
+      Message(
+        id: const Uuid().v8(),
+        createdAt: DateTime.now(),
+        message: message,
+        sentBy: _currentUserId,
+        replyMessage: replyMessage,
+        messageType: messageType,
+      ),
+    );
+  }
+
+  /// Sends a message within an active chat room.
+  ///
+  /// This method is responsible for handling the sending of a new message in
+  /// the provided the chat room ID, It also handles uploading media
+  /// and stores the message in the database.
+  ///
+  /// **Parameters:**
+  /// - (required): [messageDm] The message object containing the content
+  /// and metadata.
+  ///
+  /// Returns a [Future] that completes with the newly sent [Message] object,
+  /// or null if the message could not be sent.
+  Future<Message?> onSendTapFromMessage(
+    Message messageDm, {
+    bool useAutoGeneratedId = false,
+  }) async {
+    if (_isChatRoomCreated && !_isInitialized) return null;
+
+    if (_isChatRoomCreated) {
+      addMessage(messageDm);
+    } else {
+      final chatRoomMetadata = _currentChatRoomMetadata;
+      if (chatRoomMetadata == null) return null;
+      final chatRoomType = chatRoomMetadata.chatRoomType;
+      addMessage(messageDm);
+      switch (chatRoomType) {
+        case ChatRoomType.oneToOne:
+          await _database.createOneToOneChat(
+            userId: _currentUserId,
+            chatRoomId: chatRoomId,
+            otherUserId: chatRoomMetadata.otherUsers.first.id,
+          );
+        case ChatRoomType.group:
+          final users = chatRoomMetadata.otherUsers;
+          final usersLength = users.length;
+          final lastLength = usersLength - 1;
+          final groupNameBuffer = StringBuffer();
+          final userIds = <String, Role>{};
+          for (var i = 0; i < usersLength; i++) {
+            final user = users[i];
+            final userName = user.name;
+            groupNameBuffer.write(i == lastLength ? userName : '$userName, ');
+            userIds[user.id] = Role.admin;
+          }
+          await _database.createGroupChat(
+            userId: _currentUserId,
+            chatRoomId: chatRoomId,
+            participants: userIds,
+            groupName: chatRoomMetadata.groupName ?? groupNameBuffer.toString(),
+          );
+      }
+      _init();
+    }
+
+    return _database.addMessage(
+      chatId: chatRoomId,
+      message: messageDm,
+      useAutoGeneratedId: useAutoGeneratedId,
+      retry: ChatViewConnectConstants.defaultRetry,
+      messageOpsConfig: MessageOpsConfig(
+        syncImageWithStorage: _storageConfig.syncImage,
+        syncVoiceWithStorage: _storageConfig.syncVoice,
+        onDeleteMedia: _storage.deleteMedia,
+        onUploadMedia: (message, {fileName, uploadPath}) =>
+            _storage.uploadMedia(
+          // Set retry to 0 because the retry mechanism is already handled in
+          // the parent method.
+          retry: 0,
+          message: message,
+          chatId: chatRoomId,
+          fileName: fileName,
+          path: uploadPath,
+        ),
+      ),
+    );
+  }
+
+  /// Updates the current user typing status. (e.g. typing/typed)
+  ///
+  /// **Parameters:**
+  /// - (required) [status] The current typing status of the user.
+  Future<void> onMessageTyping(TypeWriterStatus status) {
+    if (!_isInitialized) return Future.value();
+    return _database.updateChatRoomUserMetadata(
+      userId: _currentUserId,
+      chatId: chatRoomId,
+      typingStatus: status,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Updates the status of a message to "read" or any other provided status.
+  ///
+  /// **Parameters:**
+  /// - (required): [message] The message whose status needs to be updated.
+  Future<void> onMessageRead(Message message) {
+    if (!_isInitialized) return Future.value();
+    return _database.updateMessage(
+      userId: _currentUserId,
+      chatId: chatRoomId,
+      message: message,
+      status: message.status,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Loads the old reply message in the chat room.
+  ///
+  /// This method retrieves the surrounding messages
+  /// for a given message ID, allowing users to
+  /// view the context of a reply message.
+  ///
+  /// **Parameters:**
+  /// - (required): [messageId] The ID of the message for which
+  /// to load the surrounding messages.
+  /// - (optional): [batchSize] The number of messages to retrieve
+  /// before and after the specified message ID. by default, it is set to 10.
+  Future<void> loadOldReplyMessage(
+    String messageId, {
+    int batchSize = 10,
+    MessageSortBy sortBy = MessageSortBy.createAt,
+    MessageSortOrder sortOrder = MessageSortOrder.asc,
+  }) async {
+    if (!_isInitialized) return Future.value();
+    return _database
+        .getSurroundingMessages(
+          sortBy: sortBy,
+          sortOrder: sortOrder,
+          chatId: chatRoomId,
+          messageId: messageId,
+          batchSize: batchSize,
+          retry: ChatViewConnectConstants.defaultRetry,
+        )
+        .then((messages) => replaceMessageList(messages));
+  }
+
+  /// Loads more data in the chat room based on the specified direction
+  /// and message.
+  ///
+  /// This method is used for pagination, allowing users to
+  /// load more messages in the chat room either before or after
+  /// a specified message.
+  ///
+  /// **Parameters:**
+  /// - (required): [direction] The direction in which to load more data,
+  /// either `previous` or `next`.
+  /// - (required): [message] The message from which to load more data.
+  ///
+  /// **Optional:**
+  /// - [batchSize] The number of messages to retrieve before or after
+  /// the specified message ID. by default, it is set to 10.
+  Future<void> onLoadMoreData(
+    ChatPaginationDirection direction,
+    Message message, {
+    int batchSize = 10,
+  }) async {
+    if (!_isInitialized) return Future.value();
+    final messages = await switch (direction) {
+      ChatPaginationDirection.next => _database.getNextMessages(
+          chatId: chatRoomId,
+          messageId: message.id,
+          batchSize: batchSize,
+          retry: ChatViewConnectConstants.defaultRetry,
+        ),
+      ChatPaginationDirection.previous => _database.getPreviousMessages(
+          chatId: chatRoomId,
+          messageId: message.id,
+          batchSize: batchSize,
+          retry: ChatViewConnectConstants.defaultRetry,
+        ),
+    };
+    loadMoreData(messages);
+  }
+
+  /// Deletes a message and removes any associated media from storage.
+  ///
+  /// **Parameters:**
+  /// - (required): [message] The message that is being unsent.
+  Future<bool> onUnsendTap(Message message) {
+    if (!_isInitialized) return Future.value(false);
+    return _database.deleteMessage(
+      chatId: chatRoomId,
+      message: message,
+      retry: ChatViewConnectConstants.defaultRetry,
+      messageConfig: MessageOpsConfig(
+        syncImageWithStorage: _storageConfig.syncImage,
+        syncVoiceWithStorage: _storageConfig.syncVoice,
+        onDeleteMedia: _storage.deleteMedia,
+        onUploadMedia: (message, {fileName, uploadPath}) =>
+            _storage.uploadMedia(
+          // Set retry to 0 because the retry mechanism is already handled in
+          // the parent method.
+          retry: 0,
+          message: message,
+          chatId: chatRoomId,
+          fileName: fileName,
+          path: uploadPath,
+        ),
+      ),
+    );
+  }
+
+  /// Updates the reaction of a user on a message with the selected emoji.
+  ///
+  /// **Parameters:**
+  /// - (required): [message] The message to which the user is reacting.
+  /// - (required): [emoji] The emoji representing the user's reaction.
+  Future<void> userReactionCallback(Message message, String emoji) {
+    if (!_isInitialized) return Future.value();
+    final userId = _currentUserId;
+    return _database.updateMessage(
+      userId: userId,
+      message: message,
+      chatId: chatRoomId,
+      retry: ChatViewConnectConstants.defaultRetry,
+      reaction: (userId: userId, emoji: emoji),
+    );
+  }
+
+  /// Updates the group chat's name and profile picture.
+  ///
+  /// **Parameters:**
+  /// - [displayMetadata] (required): The new display metadata
+  /// containing the updated group name and profile picture.
+  ///
+  /// **Behavior:**
+  /// - If `displayMetadata.chatName` is `null`, the group name
+  /// will remain unchanged.
+  /// - If `displayMetadata.chatProfilePhoto` is `null`,
+  /// the profile picture will remain unchanged.
+  ///
+  /// **Returns:**
+  /// - `true` if the update was successful, `false` otherwise.
+  ///
+  /// **Example Usage:**
+  /// ```dart
+  /// await controller.updateGroupChat(
+  ///   displayMetadata: ChatRoomDisplayMetadata(
+  ///     chatName: 'New Group Name',
+  ///     chatProfilePhoto: 'NEW_GROUP_PROFILE_PICTURE',
+  ///   ),
+  /// );
+  /// ```
+  ///
+  /// **Note:**
+  /// - This method does **not** restrict updates based on whether the
+  /// chat room is one-to-one or a group. If called for a one-to-one chat,
+  /// it will still attempt to update the group name without validation.
+  Future<bool> updateGroupChat({
+    required ChatRoomDisplayMetadata displayMetadata,
+  }) {
+    if (!_isInitialized) return Future.value(false);
+    return _database.updateGroupChat(
+      chatId: chatRoomId,
+      groupName: displayMetadata.chatName,
+      groupProfilePic: displayMetadata.chatProfilePhoto,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// {@macro chatview_connect.DatabaseService.addUserInGroup}
+  Future<bool> addUserInGroup({
+    required String userId,
+    required Role role,
+    required bool includeAllChatHistory,
+    DateTime? startDate,
+  }) {
+    if (!_isInitialized) return Future.value(false);
+    return _database.addUserInGroup(
+      role: role,
+      userId: userId,
+      chatId: chatRoomId,
+      startDate: startDate,
+      includeAllChatHistory: includeAllChatHistory,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Removes a user from the group chat and updates their membership status
+  /// to [MembershipStatus.removed].
+  ///
+  /// **Parameters:**
+  /// - (required): [userId] The unique identifier of the user to be removed.
+  ///
+  /// **Note:**
+  /// If the group has only one remaining user,
+  /// the group will be deleted along with its chat-related
+  /// documents.
+  ///
+  /// Returns a [Future] that resolves to `true`
+  /// if the user was successfully removed, otherwise `false`.
+  Future<bool> removeUserFromGroup({
+    required String userId,
+  }) {
+    if (!_isInitialized) return Future.value(false);
+    return _database.removeUserFromGroup(
+      chatId: chatRoomId,
+      removeUserId: userId,
+      userId: _currentUserId,
+      deleteGroupIfSingleUser: true,
+      deleteChatMedia: _storage.deleteAllMedia,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Allows the current user to leave the group chat by updating their
+  /// membership status to [MembershipStatus.left].
+  ///
+  /// **Note:**
+  /// If the group has only one remaining user,
+  /// the group will be deleted along with its chat-related
+  /// documents.
+  ///
+  /// Returns a [Future] that resolves to `true`
+  /// if the user successfully left the group, otherwise `false`.
+  Future<bool> leaveFromGroup() {
+    if (!_isInitialized) return Future.value(false);
+    final currentUserId = _currentUserId;
+    return _database.removeUserFromGroup(
+      userId: currentUserId,
+      chatId: chatRoomId,
+      removeUserId: currentUserId,
+      deleteGroupIfSingleUser: true,
+      deleteChatMedia: _storage.deleteAllMedia,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Updates the current user status. (e.g. online/offline)
+  ///
+  /// **Parameters:**
+  /// - (required): [status] The current status of the user (online/offline).
+  Future<bool> updateUserActiveStatus(UserActiveStatus status) =>
+      _database.updateUserActiveStatus(
+        userStatus: status,
+        userId: _currentUserId,
+        retry: ChatViewConnectConstants.defaultRetry,
+      );
+
+  /// Creates a one-to-one chat with the specified user.
+  ///
+  /// **Parameters:**
+  /// - (required): [userId] The unique identifier of the user to
+  /// create a chat with.
+  ///
+  /// If a chat with the given [userId] already exists,
+  /// the existing chat ID is returned.
+  /// Otherwise, a new chat is created, and its ID is returned upon success.
+  ///
+  /// **Example Usage:**
+  /// ```dart
+  /// final chatRoomId = await _chatController.createChat(OTHER_USER_ID);
+  ///
+  /// ChatManager _chatController =
+  /// await ChatViewConnect.instance.getChatRoomManager(
+  ///  chatRoomId: chatRoomId,
+  /// );
+  /// ```
+  ///
+  /// Returns `null` if the chat creation fails.
+  Future<String?> createChat(String userId) => _database.createOneToOneChat(
+        userId: _currentUserId,
+        otherUserId: userId,
+      );
+
+  /// Creates a new group chat with the specified details.
+  ///
+  /// **Parameters:**
+  /// - (required): [groupName] The name of the group chat.
+  /// - (required): [participants] A map of user IDs to their assigned roles
+  /// in the group chat. The current user is automatically added.
+  /// - (optional): [groupProfilePic] The profile picture of the group chat.
+  /// If not provided, the group will not have a profile picture.
+  ///
+  /// **Behavior:**
+  /// - This method initializes a new group chat with the given participants,
+  ///   group name, and optional profile picture.
+  ///
+  /// **Example Usage:**
+  /// ```dart
+  /// final chatRoomId = await _chatController.createGroupChat(
+  ///  groupName: 'Test Group',
+  ///  groupProfilePic: 'YOUR_GROUP_PROFILE_PICTURE_URL',
+  ///  participants: {
+  ///   'user1': Role.admin,
+  ///   'user2': Role.user,
+  ///  },
+  /// );
+  ///
+  /// ChatManager _chatController =
+  /// await ChatViewConnect.instance.getChatRoomManager(
+  ///  chatRoomId: chatRoomId,
+  /// );
+  /// ```
+  ///
+  /// Returns a ID of the newly created group chat.
+  /// If the creation fails, `null` is returned.
+  Future<String?> createGroupChat({
+    required String groupName,
+    required Map<String, Role> participants,
+    String? groupProfilePic,
+  }) {
+    return _database.createGroupChat(
+      groupName: groupName,
+      userId: _currentUserId,
+      participants: participants,
+      groupProfilePic: groupProfilePic,
+    );
+  }
+
+  /// Retrieves a list of users as a map, where the key is the user ID,
+  /// and the value is their information.
+  Future<Map<String, ChatUser>> getUsers() async {
+    try {
+      final result = await _database.getUsers(
+        retry: ChatViewConnectConstants.defaultRetry,
+      );
+      final valuesLength = result.length;
+      return {
+        for (var i = 0; i < valuesLength; i++)
+          if (result[i] case final user) user.id: user,
+      };
+    } on FirebaseException catch (_) {
+      return {};
+    }
+  }
+
+  /// Deletes the specified chat for all participating users.
+  ///
+  /// This operation also removes all associated media from storage,
+  /// including images and voice messages.
+  ///
+  /// **Parameters:**
+  /// - (required): [chatId] The unique identifier of the chat to be deleted.
+  Future<bool> deleteChat(String chatId) {
+    return _database.deleteChat(
+      chatId: chatId,
+      deleteMedia: _storage.deleteAllMedia,
+      retry: ChatViewConnectConstants.defaultRetry,
+    );
+  }
+
+  /// Disposes of resources related to chat room and message streams.
+  ///
+  /// This method is called to release any resources when the chat view is
+  /// no longer needed.
+  ///
+  /// It cancels any active streams and resets the database configuration.
+  @override
+  void dispose() {
+    _chatRoomId = null;
+    _chatRoomDisplayMetadataStream?.cancel();
+    _chatRoomDisplayMetadataStream = null;
+    _chatRoomParticipantsStream?.cancel();
+    _chatRoomParticipantsStream = null;
+    _messagesStream?.cancel();
+    _messagesStream = null;
+    _config = null;
+    _isChatRoomCreated = false;
+    _currentChatRoomMetadata = null;
+    _otherActiveUsers.clear();
+    super.dispose();
+  }
+
+  void _listenChatRoomUsersActivity({
+    required Map<String, ChatRoomParticipant> users,
+    required bool syncOtherUsersInfo,
+    ValueSetter<Map<String, ChatRoomParticipant>>? onUserActivityChanges,
+  }) {
+    if (syncOtherUsersInfo) {
+      _handleUsersMetadataChanges(users);
+    } else {
+      _updateActiveUsers(users);
+    }
+    _handleUserTypingStatus(users);
+    if (onUserActivityChanges case final callback?) callback(users);
+  }
+
+  // TODO(YASH): Typing indicators are only handled for one-to-one chats
+  //  because ChatView doesn't support showing profile pictures for multiple
+  //  users typing in group chats.
+  void _handleUserTypingStatus(Map<String, ChatRoomParticipant> users) {
+    final isOneToOneChat = _chatRoomType?.isOneToOne ?? true;
+    if (isOneToOneChat) {
+      setTypingIndicator = users.values.first.typingStatus.isTyping;
+    }
+  }
+
+  void _updateActiveUsers(Map<String, ChatRoomParticipant> users) {
+    final userValues = users.values.toList();
+    final usersLength = userValues.length;
+    for (var i = 0; i < usersLength; i++) {
+      final user = userValues[i];
+      final chatUser = user.chatUser;
+      if (chatUser == null) continue;
+      final isMember = user.membershipStatus?.isMember ?? true;
+      if (isMember) {
+        _otherActiveUsers[chatUser.id] = chatUser;
+      } else {
+        _otherActiveUsers.remove(chatUser.id);
+      }
+    }
+    // TODO(YASH): Rebuild chatview once the user details updated.
+  }
+
+  void _handleUsersMetadataChanges(Map<String, ChatRoomParticipant> users) {
+    final chatUsers = users.values.toList();
+    final usersLength = chatUsers.length;
+
+    for (var i = 0; i < usersLength; i++) {
+      final user = chatUsers[i];
+      final chatUser = user.chatUser;
+      if (chatUser == null) continue;
+      updateOtherUser(chatUser);
+      final isMember = user.membershipStatus?.isMember ?? true;
+      if (isMember) {
+        _otherActiveUsers[chatUser.id] = chatUser;
+      } else {
+        _otherActiveUsers.remove(chatUser.id);
+      }
+    }
+    // TODO(YASH): Rebuild chatview once the user details updated.
+  }
+
+  void _listenMessages(List<Message> messages) {
+    initialMessageList = messages;
+    messageStreamController.sink.add(messages);
+  }
+}

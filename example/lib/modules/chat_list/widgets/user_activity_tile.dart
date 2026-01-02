@@ -1,0 +1,56 @@
+import 'package:chatview/chatview.dart';
+import 'package:flutter/material.dart';
+
+class UserActivityTile extends StatelessWidget {
+  const UserActivityTile({
+    required this.userName,
+    this.userStatus = UserActiveStatus.offline,
+    this.userTypeStatus = TypeWriterStatus.typed,
+    this.isLast = true,
+    super.key,
+  });
+
+  final String userName;
+  final UserActiveStatus userStatus;
+  final TypeWriterStatus userTypeStatus;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (userStatus.isOnline) ...const [
+          CircleAvatar(radius: 3, backgroundColor: Colors.green),
+          SizedBox(width: 6),
+        ],
+        AnimatedCrossFade(
+          alignment: Alignment.centerLeft,
+          duration: const Duration(milliseconds: 300),
+          secondCurve: Curves.fastOutSlowIn,
+          firstChild: Text(
+            isLast ? '$userName is typing' : '$userName is typing,',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.black87,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          secondChild: Text(
+            isLast ? userName : '$userName,',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Colors.black87,
+            ),
+          ),
+          crossFadeState: userTypeStatus.isTyping
+              ? CrossFadeState.showFirst
+              : CrossFadeState.showSecond,
+        ),
+      ],
+    );
+  }
+}
