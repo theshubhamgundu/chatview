@@ -4,6 +4,6 @@
     "description": "Flutter chatview wrapper",
     "scripts": {
         "build": "flutter build web --release",
-        "vercel-build": "git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter && $HOME/flutter/bin/flutter pub get && cd example && ../$HOME/flutter/bin/flutter pub get && ../$HOME/flutter/bin/flutter build web --release -t lib/main.dart"
+        "vercel-build": "git clone https://github.com/flutter/flutter.git --depth 1 -b stable $HOME/flutter && $HOME/flutter/bin/flutter pub get && cd example && $HOME/flutter/bin/flutter pub get && $HOME/flutter/bin/flutter build web --release -t lib/main.dart"
     }
 }
