@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:chatview_utils/chatview_utils.dart';
+import 'package:flutter/foundation.dart';
 import '../../models/chat_room.dart';
 import '../../models/chat_room_display_metadata.dart';
 import '../../models/chat_room_metadata.dart';
@@ -82,7 +83,7 @@ class ChatViewLocalDatabase implements DatabaseService {
     required ChatRoomType chatRoomType,
     required String chatId,
     String? userId,
-  }) => Stream.value(const ChatRoomDisplayMetadata(name: 'Mock User', profilePhoto: ''));
+  }) => Stream.value(const ChatRoomDisplayMetadata(chatName: 'Mock User', chatProfilePhoto: ''));
 
   @override
   Future<ChatRoomMetadata?> getChatRoomMetadata({
@@ -90,6 +91,7 @@ class ChatViewLocalDatabase implements DatabaseService {
     required String chatId,
     required String userId,
   }) async => ChatRoomMetadata(
+    chatRoomType: ChatRoomType.oneToOne,
     currentUser: ChatUser(id: userId, name: 'You'),
     otherUsers: [ChatUser(id: 'other', name: 'Other')],
   );
@@ -120,13 +122,13 @@ class ChatViewLocalDatabase implements DatabaseService {
     ChatRoom(
       chatId: 'mock_chat_id',
       chatRoomType: ChatRoomType.oneToOne,
-      participantIds: [userId, 'other'],
+      users: [],
     )
   ]);
 
   @override
   Stream<ChatRoomDisplayMetadata> getGroupChatDisplayMetadataStream(String chatId) 
-    => Stream.value(const ChatRoomDisplayMetadata(name: 'Mock Group', profilePhoto: ''));
+    => Stream.value(const ChatRoomDisplayMetadata(chatName: 'Mock Group', chatProfilePhoto: ''));
 
   @override
   Future<List<MessageDm>> getMessages({
@@ -135,7 +137,7 @@ class ChatViewLocalDatabase implements DatabaseService {
     required MessageSortBy sortBy,
     required MessageSortOrder sortOrder,
     int? limit,
-    dynamic startAfterDocument, // Updated type to dynamic to avoid Firebase dependency
+    dynamic startAfterDocument,
   }) async => [];
 
   @override
@@ -204,7 +206,7 @@ class ChatViewLocalDatabase implements DatabaseService {
   }) async => true;
 
   @override
-  Future<bool> updateChatRoomUserMetadata({
+  Future<void> updateChatRoomUserMetadata({
     required int retry,
     required String chatId,
     required String userId,
@@ -213,8 +215,8 @@ class ChatViewLocalDatabase implements DatabaseService {
     PinStatus? pinStatus,
     MuteStatus? muteStatus,
     Map<String, dynamic>? chatRoomUserData,
-    dynamic ifDataNotFound,
-  }) async => ();
+    ValueGetter<ChatRoomParticipant>? ifDataNotFound,
+  }) async {}
 
   @override
   Future<bool> updateGroupChat({
@@ -232,7 +234,7 @@ class ChatViewLocalDatabase implements DatabaseService {
     required Message message,
     MessageStatus? status,
     ReactionCallback? reaction,
-  }) async => ();
+  }) async {}
 
   @override
   Future<List<Message>> getSurroundingMessages({

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:chatview_utils/chatview_utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../chatview_connect.dart';
@@ -290,7 +289,7 @@ final class ChatListManager extends ChatListController {
         for (var i = 0; i < valuesLength; i++)
           if (result[i] case final user) user.id: user,
       };
-    } on FirebaseException catch (_) {
+    } on Exception catch (_) {
       return {};
     }
   }

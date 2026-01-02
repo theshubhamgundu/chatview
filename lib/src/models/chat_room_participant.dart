@@ -1,5 +1,4 @@
 import 'package:chatview_utils/chatview_utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../chatview_connect.dart';
 import '../enum.dart';
@@ -44,18 +43,8 @@ class ChatRoomParticipant {
   /// if data types do not match expectations.
   factory ChatRoomParticipant.fromJson(Map<String, dynamic> json) {
     final chatUserData = json['chat_user'];
-    final createAtJson = json[_membershipStatusTimestamp];
-    final createAt = createAtJson is Timestamp
-        ? createAtJson.toDate().toLocal().toIso8601String()
-        : createAtJson;
-    json[_membershipStatusTimestamp] = createAt;
-
-    final pinStatusTimestampJson = json[_pinStatusTimestamp];
-    final pinStatusTimestamp = pinStatusTimestampJson is Timestamp
-        ? pinStatusTimestampJson.toDate().toLocal().toIso8601String()
-        : pinStatusTimestampJson;
-
-    json[_pinStatusTimestamp] = pinStatusTimestamp;
+    final createAt = json[_membershipStatusTimestamp];
+    final pinStatusTimestamp = json[_pinStatusTimestamp];
 
     return ChatRoomParticipant(
       chatUser: chatUserData is Map<String, dynamic>
@@ -168,14 +157,10 @@ class ChatRoomParticipant {
       'mute_status': muteStatus.name,
     };
     if (membershipStatusTimestamp case final membershipStatusTimestamp?) {
-      data[_membershipStatusTimestamp] = membershipStatusTimestamp.isNow
-          ? FieldValue.serverTimestamp()
-          : Timestamp.fromDate(membershipStatusTimestamp);
+      data[_membershipStatusTimestamp] = membershipStatusTimestamp.toIso8601String();
     }
     if (pinStatusTimestamp case final pinStatusTimestamp?) {
-      data[_pinStatusTimestamp] = pinStatusTimestamp.isNow
-          ? FieldValue.serverTimestamp()
-          : Timestamp.fromDate(pinStatusTimestamp);
+      data[_pinStatusTimestamp] = pinStatusTimestamp.toIso8601String();
     }
     return data;
   }

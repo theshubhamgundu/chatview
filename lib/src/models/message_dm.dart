@@ -1,6 +1,4 @@
 import 'package:chatview_utils/chatview_utils.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 /// encapsulates information about message,
 /// including content of [Message] Data model and
 /// the corresponding [DocumentSnapshot] of [Message]? document snapshot.
@@ -17,5 +15,5 @@ class MessageDm {
   final Message message;
 
   /// provides firebase document snapshot.
-  final DocumentSnapshot<Message?>? snapshot;
+  final dynamic snapshot;
 }
