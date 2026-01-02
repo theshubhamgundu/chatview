@@ -12,7 +12,7 @@ import '../../../extensions.dart';
 ///     ChatViewCloudService.firebase,
 ///     cloudServiceConfig: FirebaseCloudConfig(
 ///       databasePathConfig: FirestoreChatDatabasePathConfig(
-///         userCollectionPath: 'organizations/simform',
+///         userCollectionPath: 'organizations/app',
 ///       ),
 ///     ),
 /// );
