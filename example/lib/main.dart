@@ -21,9 +21,8 @@ Future<void> main() async {
     // collection names used by ChatViewConnect.
     //
     // Example:
-    // cloudServiceConfig: FirebaseCloudConfig(
     //   databasePathConfig: FirestoreChatDatabasePathConfig(
-    //     userCollectionPath: 'organizations/simform',
+    //     userCollectionPath: 'organizations/app',
     //   ),
     //   collectionNameConfig: FirestoreChatCollectionNameConfig(
     //     users: 'app_users',
